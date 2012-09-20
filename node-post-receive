@@ -1,0 +1,14 @@
+#!/bin/sh
+
+echo Executing post_receive hook for $APP_NAME
+
+unset GIT_INDEX_FILE
+export GIT_WORK_TREE=/var/local/node-apps/$APP_NAME
+export GIT_DIR=/home/git/repositories/$APP_NAME.git
+
+echo Moving app files to "$GIT_WORK_TREE" ...
+git checkout -f
+chown -R node:node $GIT_WORK_TREE
+
+echo Restarting $APP_NAME
+monit restart $APP_NAME
