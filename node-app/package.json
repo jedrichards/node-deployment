@@ -1,0 +1,9 @@
+{
+  "name": "proxy-node-app",
+  "version": "0.0.1",
+  "description": "Node based reverse proxy.",
+  "main": "index.js",
+  "dependencies": {
+    "http-proxy": "0.8.1"
+  }
+}
