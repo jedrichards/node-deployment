@@ -82,10 +82,50 @@ I've added the Node reverse proxy application to this repo so you can look aroun
 
 Writing a Node application and using `npm` etc. is beyond the scope of this document so I'm not going to go into too much detail, but I'll mention the salient points.
 
-The app reads in a JSON file specifying a set of proxy rules. Traffic hitting the proxy app on port 80 is internally routed to services running on other ports based on the incoming domain name in the request. For example, Apache could be set to listen on port 8000, and another Node app could be listening on port 8001. Any virtual hosts configured in Apache will continue to work as expected, and what's more since this is Node web sockets and arbitrary TCP/IP traffic will be proxied flawlessly. As I understand it as of writing this (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
+The app reads in a JSON file specifying a set of proxy rules. Traffic hitting the proxy app on port 80 is internally routed to services running on other ports based on the incoming domain name in the request. For example, Apache could be set to listen on port 8000, and another Node app could be listening on port 8001. Any virtual hosts configured in Apache will continue to work as expected, and what's more since this is Node web sockets and arbitrary TCP/IP traffic will be proxied flawlessly. As I understand it at the time of writing (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
 
 The app is configured for server vs. dev environments via the environment variables `NODE_ENV` and `PORT`. Later on in this document you'll see the environment variables being set in the Upstart job configuration.
 
 The app exposes a special route `/ping` via custom middleware which we'll later see Monit use to check the health of the proxy.
 
 On the server we don't want the app to run as root via `sudo` however we're not allowed to bind to port 80 unless this is the case. One rememdy would be to use ip tables to route all port 80 traffic to a higher port and set our app to listen there. That sounds like extra easily forgotten configuration steps though, so in this case we'll be invoking our app as root via `sudo` initially but then immediately having it downgrade itself to a non-privileged user `node` once internal setup has completed.
+
+### 3. The post-recieve hook
+
+At this stage I'll assume you have the application code added to a fully working remote Gitolite repo on the server and are able to push and pull to it with ease from your workstation.
+
+The task of the Git `post-receive` hook is to invoke a generic deploy script which moves the Node app files out of the bare Gitolite repo and into whichever location we decide to store our active node apps on the server whnever new code is pushed. First you need to SSH into the server and become the `git` user:
+
+	ssh user@host
+	sudo su git
+
+Navigate to the hooks folder for the relevant repo and start to edit the `post-receive` file. It's important that this file is owned by and executable by the `git` user.
+
+	cd /home/git/repositories/proxy-node-app.git/hooks
+	nano post-receive
+
+Make the contents look like (or similar to) this:
+
+	#!/bin/sh
+
+	APP_NAME="proxy-node-app" sudo sh /usr/local/sbin/node-post-receive
+
+Here we're attempting to invoke the `/usr/local/sbin/node-post-receive` generic deployment script as root with `sudo` while passing a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-post-receive` with the `sh` command without a password.
+
+Start to edit the `/etc/sudoers` file:
+
+	sudo visudo
+
+And add the following line at the bottom:
+
+	git ALL = (root) NOPASSWD: /bin/sh /usr/local/sbin/node-post-receive
+
+This isn't as big a security concern as it might seem because we're only giving the `git` user password-less `sudo` rights to this one particular script, which itself will only be editable and viewable by `root`.
+
+We're not quite done with `/etc/sudoers` though, we need to stop `sudo` stripping out our `APP_NAME` environment variable. Add the following at the top just above the `Defaults env_reset` line:
+
+	Defaults env_keep += "APP_NAME"
+
+Save and exit `/etc/sudoers`. We now should be in a postion where we can push to our Gitolite repo, have the `post-receive` execute and granted the `git` user password-less `sudo` rights to run our generic deployment script. Now we need to write that script.
+
+### 4. The generic deployment script
