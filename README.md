@@ -108,9 +108,9 @@ Make the contents look like (or similar to) this:
 
 	#!/bin/sh
 
-	APP_NAME="proxy-node-app" sudo sh /usr/local/sbin/node-post-receive
+	APP_NAME="proxy-node-app" sudo sh /usr/local/sbin/node-deploy
 
-Example in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/post-receive).Here we're attempting to invoke the `/usr/local/sbin/node-post-receive` generic deployment script as root with `sudo` while passing a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-post-receive` with the `sh` command without a password.
+Example in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/post-receive).Here we're attempting to invoke the `/usr/local/sbin/node-deploy` generic deployment script as root with `sudo` while passing a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-deploy` with the `sh` command without a password.
 
 Start to edit the `/etc/sudoers` file:
 
@@ -118,7 +118,7 @@ Start to edit the `/etc/sudoers` file:
 
 And add the following line at the bottom:
 
-	git ALL = (root) NOPASSWD: /bin/sh /usr/local/sbin/node-post-receive
+	git ALL = (root) NOPASSWD: /bin/sh /usr/local/sbin/node-deploy
 
 This isn't as big a security concern as it might seem because we're only giving the `git` user password-less `sudo` rights to this one particular script, which itself will only be editable and viewable by `root`.
 
@@ -126,18 +126,20 @@ We're not quite done with `/etc/sudoers` though, we need to stop `sudo` strippin
 
 	Defaults env_keep += "APP_NAME"
 
-Save and exit `/etc/sudoers`. We now should be in a postion where we can push to our Gitolite repo, have the `post-receive` execute and granted the `git` user password-less `sudo` rights to run our generic deployment script. Now we need to write that script.
+Again, this shouldn't be too much of a security concern because we'll be handling the contents of `APP_NAME` carefully in `node-deploy`.
+
+Save and exit `/etc/sudoers`. We now should be in a postion where we can push to our Gitolite repo and have the `post-receive` execute, and having granted the `git` user password-less `sudo` rights to run our generic deployment script `node-deploy` will run as `root` with the power to do any kind of filesystem manipulation it likes. Now we need to write that script.
 
 ### 4. The generic deployment script
 
-I'm calling this a "generic" deployment script because I'm aiming for it to be useful for publishing any reasonably non-complex node app. To this end we use the `APP_NAME` value passed in from the `post-receive` hook to tailor the behavour of the script.
+I'm calling this a "generic" deployment script because I'm aiming for it to be useful for publishing any reasonably non-complex Node app. To this end we use the `APP_NAME` value passed in from the `post-receive` hook to tailor the behaviour of the script.
 
-I've been told that `/usr/local/sbin` is a sensible place to put such scripts on Ubuntu so go ahead and create a file called `node-post-receive` there. It's important that this file belongs to root, because it's being invoked as root and doing some heavy lifting.
+I've been told that `/usr/local/sbin` is a sensible place to put such user generated scripts on Ubuntu so go ahead and create a file called `node-deploy` there. It's important that this file belongs to `root`, because it's being invoked as `root` by the `git` user and will be doing some unilateral heavy lifting.
 
 	cd /usr/local/sbin
-	sudo touch node-post-receive
+	sudo touch node-deploy
 
-The example file is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/node-post-receive) but I'll repeat it here:
+The example file is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/node-deploy) but I'll repeat it here:
 
 	#!/bin/sh
 
@@ -162,8 +164,45 @@ You don't have to keep your node apps in `/var/local/node-apps/`, but after some
 
 ### 5. Upstart
 
-[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as restarting them if their associated process dies. In the context of a Node application we can use it to effectively daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session.
+[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as restarting them if their associated process dies. Additionally it exposes a handy command line API for manipulating the services with commands like `sudo start servicename`, `sudo stop servicename` and `sudo status servicename`.
+
+A service can be added to Upstart by placing a valid Upstart job configuration file in the `/etc/init` directory. Configuration files having the naming format `servicename.conf`, and as long as they're valid Upstart will a) allow you to start and stop them via the aforementioned API and b) automatically start them on boot.
 
 Upstart is already on your box if you're running Ubuntu 10.04 like me, but if you don't have it I think it's gettable via `apt-get`.
+
+In the context of a Node application we can use it to effectively daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session. What's more Upstart's start/stop API provides a useful control point for Monit to hook into (more on that later).
+
+An example Upstart job configuration is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/proxy-node-app.conf), but here it is reproduced:
+
+	description "Upstart job definition for the proxy-node-app Node application"
+	author "Jed Richards"
+
+	start on runlevel [2345]
+	stop on runlevel [06]
+	respawn
+	respawn limit 10 5
+
+	env APP=/var/local/node-apps/proxy-node-app/index.js
+	env APP_NAME=proxy-node-app
+	env USER=root
+	env PORT=80
+	env NODE_ENV=production
+	env NODE_BIN=/usr/bin/node
+	env LOG_DIR=/var/opt/node
+
+	pre-start script
+	    mkdir -p $LOG_DIR
+	    chown -R node:node $LOG_DIR
+	end script
+
+	script
+	    echo $$ > $LOG_DIR/$APP_NAME.pid
+	    exec su -c 'PORT=$PORT NODE_ENV=$NODE_ENV $NODE_BIN $APP' $USER >> $LOG_DIR/$APP_NAME.log 2>&1
+	end script
+
+	post-stop script
+	    rm -f $LOG_DIR/$APP_NAME.pid
+	end script
+
 
 
