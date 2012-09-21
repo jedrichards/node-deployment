@@ -110,7 +110,7 @@ Make the contents look like (or similar to) this:
 
 	APP_NAME="proxy-node-app" sudo sh /usr/local/sbin/node-post-receive
 
-Here we're attempting to invoke the `/usr/local/sbin/node-post-receive` generic deployment script as root with `sudo` while passing a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-post-receive` with the `sh` command without a password.
+Example in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/post-receive).Here we're attempting to invoke the `/usr/local/sbin/node-post-receive` generic deployment script as root with `sudo` while passing a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-post-receive` with the `sh` command without a password.
 
 Start to edit the `/etc/sudoers` file:
 
@@ -129,3 +129,41 @@ We're not quite done with `/etc/sudoers` though, we need to stop `sudo` strippin
 Save and exit `/etc/sudoers`. We now should be in a postion where we can push to our Gitolite repo, have the `post-receive` execute and granted the `git` user password-less `sudo` rights to run our generic deployment script. Now we need to write that script.
 
 ### 4. The generic deployment script
+
+I'm calling this a "generic" deployment script because I'm aiming for it to be useful for publishing any reasonably non-complex node app. To this end we use the `APP_NAME` value passed in from the `post-receive` hook to tailor the behavour of the script.
+
+I've been told that `/usr/local/sbin` is a sensible place to put such scripts on Ubuntu so go ahead and create a file called `node-post-receive` there. It's important that this file belongs to root, because it's being invoked as root and doing some heavy lifting.
+
+	cd /usr/local/sbin
+	sudo touch node-post-receive
+
+The example file is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/node-post-receive) but I'll repeat it here:
+
+	#!/bin/sh
+
+	echo Executing post_receive hook for "$APP_NAME"
+
+	mkdir -p /var/local/node-apps/$APP_NAME
+
+	unset GIT_INDEX_FILE
+	export GIT_WORK_TREE=/var/local/node-apps/$APP_NAME
+	export GIT_DIR=/home/git/repositories/$APP_NAME.git
+
+	echo Moving app files to "$GIT_WORK_TREE" ...
+	git checkout -f
+	chown -R node:node $GIT_WORK_TREE
+
+	echo Restarting $APP_NAME
+	monit restart $APP_NAME
+
+Basically this script is simply syncronising the contents of the node app directory (in this case `/var/local/node-apps/proxy-node-app`) with the latest revision of files in the bare Gitolite repo. Once that's been done it's changing the ownership of the files to the `node` user and restarting the app via Monit.
+
+You don't have to keep your node apps in `/var/local/node-apps/`, but after some research it seemed like a reasonably sensible location.
+
+### 5. Upstart
+
+[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as restarting them if their associated process dies. In the context of a Node application we can use it to effectively daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session.
+
+Upstart is already on your box if you're running Ubuntu 10.04 like me, but if you don't have it I think it's gettable via `apt-get`.
+
+
