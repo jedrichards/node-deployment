@@ -48,7 +48,7 @@ It can also be useful to nail down which SSH credentials your system may be tryi
 
 This example would define a `gitolite-host` server alias pointing to the host at IP `0.0.0.0` which would always connect as the remote user `git` using the `~/.ssh/id_rsa` key. The `IdentitiesOnly yes` enforces the use of the specified key, since in some cases the system may give up connecting before the correct key has been used.
 
-What's more OSX will sometimes cache a public key that's been added to the system's keychain and/or `ssh-agent`, especially once you've opted to have OSX remember a key's password. So if you're really having trouble SSHing into Gitolite with right user/key you can purge that cache like so:
+What's more OSX will sometimes cache a public key, especially when you've opted to save a key's password to the keychain/`ssh-agent`. So if you're really having trouble SSHing into Gitolite with right user/key combo you can purge that cache like so:
 
 	sudo ssh-add -L # Lists all public keys currently being cached
 	sudo ssh-add -D # Deletes all cached public keys
