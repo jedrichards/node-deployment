@@ -1,16 +1,17 @@
 
 ## Node Reverse Proxy Deployment Via Gitolite, Upstart and Monit
 
-This repo represents an attempt to detail an approach for automated deployment of Node applications to a remote server. I'll try to add step-by-step instructions to this readme file and where relevant commit some example scripts and configs too.
+This repo represents an attempt to detail an approach for automated deployment and hosting of Node applications on a remote server. I'll try to add step-by-step instructions to this readme file and where relevant commit some example scripts and config files too.
 
-In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on other ports (for example Apache or more Node apps).
+In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs.
 
-### Deploy flow overview
+### Overview
 
 - Node application code is source controlled under Git.
-- The remote server is running [Gitolite](https://github.com/sitaramc/gitolite) to enable collaborative development and deployment with multi-user access control.
+- The remote server is running [Gitolite](https://github.com/sitaramc/gitolite) to enable collaborative development and deployment with multi-user access control to a remote Git repo.
 - When new code is pushed to Gitolite a `post-receive` hook is used to execute a shell script which moves the Node application files to their proper location on the server.
 - [Upstart](http://upstart.ubuntu.com) and [Monit](http://mmonit.com/monit) are used to manage the Node application on the server, i.e. restarting on deployment or server reboot and displaying and reporting status.
+- Gitolite runs under a `git` user, and Node apps will run under a `node` user.
 
 ### Hardware used
 
@@ -29,17 +30,15 @@ In order to kill two birds with one stone the example Node app we'll be deployin
 
 ### 1. Setup Gitolite
 
-Setting up [Gitolite](https://github.com/sitaramc/gitolite) on the server is optional, but it makes it much easier to grant read/write access to your remote Git repo to coworkers. If you're pretty sure you're the only person who'll ever be working with the app then you could probably get away with setting up a bare Git repo yourself and working with it directly over SSH.
+Setting up [Gitolite](https://github.com/sitaramc/gitolite) on the server is optional, but it makes it much easier to grant granular read/write access to your remote repo to coworkers. If you're pretty sure you're the only person who'll ever be working with the app then you could probably get away with setting up a bare Git repo yourself and working with it directly over SSH. You could possibly use GitHub too, but that's out of the question if you're hosting sensitive/private code and you don't want to pay for private repos.
 
 Setting up Gitolite is beyond the scope of this document, but there's fairly good documentation [here](http://sitaramc.github.com/gitolite/master-toc.html). Suffice to say I encountered a fair few hiccups while getting Gitolite to work, mainly revolving around SSH configuration, so I'm going to briefly talk about some of those sticking points and their remedies.
 
-Gitolite mandates the creation of a `git` (or `gitolite`) user on your server with limited privileges, and when you push code to Gitolite you do so over SSH and authenticate via public key. I found the following command useful to verbosely debug a SSH connection that is mysteriously failing:
+During installation Gitolite mandates the creation of a `git` (or `gitolite`) user on your server with limited privileges, and when you push code to Gitolite you do so over SSH and authenticate via public key. Gitolite works out whether you have access rights to the repo you're trying to push to by checking the public key you offer to the server, so needless to say it's important that SSH is presenting the correct one. I found the following command useful to verbosely debug a SSH connection that is mysteriously failing:
 	
 	ssh -vT git@gitolite-host
 
-Gitolite works out whether you have access rights to the repo you're trying to push to by checking the public key you offer to the server, so needless to say it's important that SSH is presenting the correct one.
-
-It can be useful to nail down which SSH credentials your system may be trying to use for a given user/host combination, in which case you could add an entry to your `~/.ssh/config` file like so:
+It can also be useful to nail down which SSH credentials your system may be trying to use for a given user/host combination, in which case you could add an entry to your `~/.ssh/config` file something like this:
 
 	Host gitolite-host
 		HostName 0.0.0.0
@@ -49,12 +48,12 @@ It can be useful to nail down which SSH credentials your system may be trying to
 
 This example would define a `gitolite-host` server alias pointing to the host at IP `0.0.0.0` which would always connect as the remote user `git` using the `~/.ssh/id_rsa` key. The `IdentitiesOnly yes` enforces the use of the specified key, since in some cases the system may give up connecting before the correct key has been used.
 
-What's more, OSX will sometimes cache a public key that's been added to the system's keychain and/or `ssh-agent`, especially once you've opted to have OSX remember a key's password. So if you're really having trouble SSHing into Gitolite with right user/key you can purge that cache like so:
+What's more OSX will sometimes cache a public key that's been added to the system's keychain and/or `ssh-agent`, especially once you've opted to have OSX remember a key's password. So if you're really having trouble SSHing into Gitolite with right user/key you can purge that cache like so:
 
 	sudo ssh-add -L # Lists all public keys currently being cached
 	sudo ssh-add -D # Deletes all cached public keys
 
-Furthermore, it may be useful to present two different identities to Gitolite. One identity could be the Gitolite admin user which has the rights to the `gitolite-admin` repo, and the other could be your regular user identity which you use for your general coding work. Under these conditions you can add two hosts to your SSH config which point to the same host but present two different keys:
+Furthermore, it may be useful to present two different identities to Gitolite. One identity could be the Gitolite admin user which has the rights to the `gitolite-admin` repo, and the other could be your regular user identity which you use for your general coding work. Under these conditions you can add two server aliases to your SSH config which point to the same host but present two different keys:
 
 	Host gitolite-host-admin
 		HostName 0.0.0.0
@@ -78,11 +77,11 @@ And to clone a regular repo for work:
 
 ### 2. The Node Application
 
-I've added the Node reverse proxy application to this repo so you can look around the files. It uses nodejitsu's excellent [node-http-proxy](https://github.com/nodejitsu/node-http-proxy) under the hood.
+I've added the Node reverse proxy application to this repo so you can look around the files. It uses nodejitsu's [node-http-proxy](https://github.com/nodejitsu/node-http-proxy) under the hood.
 
-Writing a Node application and using `npm` etc. is beyond the scope of this document so I'm not going to go into too much detail, but I'll mention the salient points.
+Writing a Node application and using `npm` etc. is beyond the scope of this document so I'm not going to go into too any detail, but I'll mention the salient points.
 
-The app reads in a JSON file specifying a set of proxy rules. Traffic hitting the proxy app on port 80 is internally routed to services running on other ports based on the incoming domain name in the request. For example, Apache could be set to listen on port 8000, and another Node app could be listening on port 8001. Any virtual hosts configured in Apache will continue to work as expected, and what's more since this is Node web sockets and arbitrary TCP/IP traffic will be proxied flawlessly. As I understand it at the time of writing (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
+The app reads in a JSON file specifying a set of proxy rules. Traffic hitting the proxy app on port 80 is internally routed to services running on other ports based on the incoming domain name in the request headers. For example, Apache could be set to listen on port 8000, and another Node app could be listening on port 8001. Any virtual hosts configured in Apache will continue to work as expected, and what's more since this is Node web sockets and arbitrary TCP/IP traffic will be proxied flawlessly. As I understand it at the time of writing (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
 
 The app is configured for server vs. dev environments via the environment variables `NODE_ENV` and `PORT`. Later on in this document you'll see the environment variables being set in the Upstart job configuration.
 
@@ -92,9 +91,9 @@ On the server we don't want the app to run as root via `sudo` however we're not 
 
 ### 3. The post-recieve hook
 
-At this stage I'll assume you have the application code added to a fully working remote Gitolite repo on the server and are able to push and pull to it with ease from your workstation.
+At this stage I'll assume you have some application code added to a fully working remote Gitolite repo on the server and are able to push and pull to it with ease from your workstation.
 
-The task of the Git `post-receive` hook is to invoke a generic deploy script which moves the Node app files out of the bare Gitolite repo and into whichever location we decide to store our active node apps on the server whnever new code is pushed. First you need to SSH into the server and become the `git` user:
+The task of the Git `post-receive` hook is to invoke a generic deploy script which moves the Node app files out of the bare Gitolite repo and into whichever location we decide to store our active node apps on the server whenever new code is pushed. First you need to SSH into the server and become Gitolite's `git` user:
 
 	ssh user@host
 	sudo su git
@@ -104,13 +103,9 @@ Navigate to the hooks folder for the relevant repo and start to edit the `post-r
 	cd /home/git/repositories/proxy-node-app.git/hooks
 	nano post-receive
 
-Make the contents look like (or similar to) this:
+Make the contents look like (or similar to) the [example post-receive hook](https://github.com/jedrichards/node-deployment/blob/master/post-receive) in this repo.
 
-	#!/bin/sh
-
-	APP_NAME="proxy-node-app" sudo sh /usr/local/sbin/node-deploy
-
-Example in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/post-receive).Here we're attempting to invoke the `/usr/local/sbin/node-deploy` generic deployment script as root with `sudo` while passing a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-deploy` with the `sh` command without a password.
+Here we're attempting to invoke the `/usr/local/sbin/node-deploy` generic deployment script via the `sh` command via `sudo` while passing down a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/usr/local/sbin/node-deploy` with the `sh` command without a password.
 
 Start to edit the `/etc/sudoers` file:
 
@@ -139,70 +134,46 @@ I've been told that `/usr/local/sbin` is a sensible place to put such user gener
 	cd /usr/local/sbin
 	sudo touch node-deploy
 
-The example file is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/node-deploy) but I'll repeat it here:
+An example of this script is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/node-deploy).
 
-	#!/bin/sh
+The script above is fairly well commented so I won't go into much detail, but basically this script is simply syncronising the contents of the node app directory (in this case `/var/local/node-apps/proxy-node-app`) with the latest revision of files in the bare Gitolite repo. Once that's been done it's changing the ownership of the files to the `node` user and restarting the app via Monit.
 
-	echo Executing post_receive hook for "$APP_NAME"
-
-	mkdir -p /var/local/node-apps/$APP_NAME
-
-	unset GIT_INDEX_FILE
-	export GIT_WORK_TREE=/var/local/node-apps/$APP_NAME
-	export GIT_DIR=/home/git/repositories/$APP_NAME.git
-
-	echo Moving app files to "$GIT_WORK_TREE" ...
-	git checkout -f
-	chown -R node:node $GIT_WORK_TREE
-
-	echo Restarting $APP_NAME
-	monit restart $APP_NAME
-
-Basically this script is simply syncronising the contents of the node app directory (in this case `/var/local/node-apps/proxy-node-app`) with the latest revision of files in the bare Gitolite repo. Once that's been done it's changing the ownership of the files to the `node` user and restarting the app via Monit.
-
-You don't have to keep your node apps in `/var/local/node-apps/`, but after some research it seemed like a reasonably sensible location.
+You don't have to keep your node apps in `/var/local/node-apps/`, anywhere will likely do, but after some research it seemed like a reasonably sensible location.
 
 ### 5. Upstart
 
-[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as restarting them if their associated process dies. Additionally it exposes a handy command line API for manipulating the services with commands like `sudo start servicename`, `sudo stop servicename` and `sudo status servicename`.
+[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as optionally respawning them if their associated process dies. Additionally it exposes a handy command line API for manipulating the services with commands like `sudo start servicename`, `sudo stop servicename` and `sudo status servicename` etc.
 
-A service can be added to Upstart by placing a valid Upstart job configuration file in the `/etc/init` directory. Configuration files having the naming format `servicename.conf`, and as long as they're valid Upstart will a) allow you to start and stop them via the aforementioned API and b) automatically start them on boot.
+A service can be added to Upstart by placing a valid Upstart job configuration file in the `/etc/init` directory. Configuration files having the naming format `servicename.conf`.
 
-Upstart is already on your box if you're running Ubuntu 10.04 like me, but if you don't have it I think it's gettable via `apt-get`.
+In the context of a Node application we can use it to effectively daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session. Upstart's `start on` and `stop on` directives allow us to have the app automatically stopped and started on shutdown and reboot. What's more Upstart's start/stop API provides a useful control point for Monit to hook onto (more on that later).
 
-In the context of a Node application we can use it to effectively daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session. What's more Upstart's start/stop API provides a useful control point for Monit to hook into (more on that later).
+Upstart is already on your box if you're running Ubuntu 10.04 like me, but if you don't have it I think it's installable via `apt-get`.
 
-An example Upstart job configuration is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/proxy-node-app.conf), but here it is reproduced:
+An example Upstart job configuration is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/proxy-node-app.conf), again it's well commented so I won't go into any more detail here.
 
-	description "Upstart job definition for the proxy-node-app Node application"
-	author "Jed Richards"
+Upstart job configurations allow you to control how Upstart attempts to restart crashed processes via the `respawn` and `respwan limit` directives. I'm opting *not* to use this feature and instead control respawning via Monit as we'll see in the next section. The reason for this is that Monit allows you to monitor a Node app by actually requesting a response from it over HTTP which is a more reliable indicator of health for a web app than simply an active system process (the web app could be frozen and not responding to requests but have perfectly alive system process for example).
 
-	start on runlevel [2345]
-	stop on runlevel [06]
-	respawn
-	respawn limit 10 5
+### 6. Monit
 
-	env APP=/var/local/node-apps/proxy-node-app/index.js
-	env APP_NAME=proxy-node-app
-	env USER=root
-	env PORT=80
-	env NODE_ENV=production
-	env NODE_BIN=/usr/bin/node
-	env LOG_DIR=/var/opt/node
+[Monit](http://mmonit.com/monit) is a utility for managing and monitoring all sorts of UNIX system resources (processes, web services, files, directories  etc). As just mentioned we'll be using it to monitor the health of our Node apps, and restart them if they fall over.
 
-	pre-start script
-	    mkdir -p $LOG_DIR
-	    chown -R node:node $LOG_DIR
-	end script
+Monit also always you to receive alert emails when something happends, and exposes a web based front end that lets you check on the system's status and manually stop and start monitored services.
 
-	script
-	    echo $$ > $LOG_DIR/$APP_NAME.pid
-	    exec su -c 'PORT=$PORT NODE_ENV=$NODE_ENV $NODE_BIN $APP' $USER >> $LOG_DIR/$APP_NAME.log 2>&1
-	end script
+So just to re-iterate, Upstart starts and stops the app on system reboot and provides the start/stop command line API, and Monit keeps tabs on its status while it is running and restarts it if it looks unhealthy.
 
-	post-stop script
-	    rm -f $LOG_DIR/$APP_NAME.pid
-	end script
+I installed Monit via `apt-get` on Ubuntu 10.04 Lucid. Everything went more or less smoothly, and most of the information you need is in the docs. One caveat is that although the docs say that after installation all you need to run is `sudo monit` to start everything I found that I also needed to run `sudo monit start all` to get things fully under way. Maybe rebooting would have worked as well.
+
+Monit is configured via the `/etc/monit/monitrc` file, and [here's](https://github.com/jedrichards/node-deployment/blob/master/monitrc) my example. The file is commented but broadly speaking my `monitrc` is doing the following things:
+
+- Checking on the health of the `proy-node-app` via its special `/ping` route. Anything other than a `200` HTTP response code to a request to `127.0.0.1:80/ping` will indicate to Monit that the app needs restarting.
+- Exposes Monit's web-based front end on a specific port and controls access via a username and password.
+- Sends me an email via Gmail's SMTP servers when there's an alert.
+- Additionally monitors Apache and MySQL.
+
+### Future thoughts
+
+### References and links
 
 
 
