@@ -2,22 +2,22 @@
 
 set daemon 60
 
-# Expose the monit web-based front end on port 0000. Allow any incoming
+# Expose the Monit web based front-end on the port 0000. Allow any incoming
 # connections from any IP as long as they supply the correct credentials.
 
 set httpd port 0000
-    allow user:password
+    allow username:password
 
 # Use Gmail as the outgoing mailserver for alert messages.
 
 set mailserver smtp.gmail.com port 587
-    username "username@gmail.com" password "password"
+    username "email@gmail.com" password "password"
     using tlsv1
 
 # Define who the alerts should be sent to. Add extra recipients with
 # more set alert lines.
 
-set alert username@gmail.com
+set alert email@gmail.com
 set alert coworker@gmail.com
 
 # Set a format for outgoing alert emails.
@@ -30,16 +30,17 @@ Date: $DATE
 Action: $ACTION
 Event: $EVENT
 Service: $SERVICE
+Host: $HOST
 
-Find out more at http://www.host.com:0000
+Find out more at http://0.0.0.0:0000
 
 Love, $HOST X
 }
 
-# Check the proxy Node app. The pidfile, start and stop functionality
+# Check the proxy-node-app Node app. The PID, start and stop functionality
 # is supplied by Upstart. If the proxy fails to respond with a 200 OK response
-# code after a request to its special "/ping" route then Monit
-# will alert and attempt to restart.
+# code after a request to its special "/ping" route then Monit will alert and
+# attempt to restart.
 
 check process proxy-node-app
     with pidfile /var/opt/node/run/proxy-node-app.pid
@@ -51,25 +52,36 @@ check process proxy-node-app
         protocol HTTP
         request /ping
         with timeout 5 seconds
-    then restart
-    if 3 restarts within 3 cycles then timeout
+        then restart
+    if 3 restarts
+        within 3 cycles
+        then timeout
 
-# Check the Apache2 process. Additionally check that any specified vhosts
-# are responding to requests and restart and/or alert as desired if they don't.
+# Check the Apache2 process. Additionally check that the specified vhosts
+# are responding to requests and alert if they don't. Assuming you have Apache
+# running on port 8000.
 
 check process apache2
     with pidfile /var/run/apache2.pid
     start program = "/etc/init.d/apache2 start"
-    stop program = "/etc/init.d/apache2 start"
+    stop program = "/etc/init.d/apache2 stop"
     if failed
-        host www.host.com
+        host www.somevhost.com
         port 8000
-    then restart
+        protocol HTTP
+        request /
+        with timeout 5 seconds
+        then alert
     if failed
-        host www.otherdomain.com
+        host www.someothervhost.com
         port 8000
-    then alert
-    if 3 restarts within 3 cycles then timeout
+        protocol HTTP
+        request /
+        with timeout 5 seconds
+        then alert
+    if 3 restarts
+        within 3 cycles
+        then timeout    
 
 # Check the MySQL process. MySQL doesn't make a PID file by default, you have to
 # add the line "pid-file = /var/run/mysqld/mysqld.pid" to the /etc/mysql/my.cnf
@@ -82,5 +94,7 @@ check process mysql
     if failed
         host 127.0.0.1
         port 3306
-    then restart
-    if 3 restarts within 3 cycles then timeout
+        then restart
+    if 3 restarts
+        within 3 cycles
+        then timeout

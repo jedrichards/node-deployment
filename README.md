@@ -3,14 +3,14 @@
 
 This repo represents an attempt to detail an approach for automated deployment and hosting of Node applications on a remote server. I'll try to add step-by-step instructions to this readme file and where relevant commit some example scripts and config files too.
 
-In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs (i.e. www.myapp.com as opposed to www.myserver.com:8000 etc.)
+In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs (i.e. `www.myapp.com` as opposed to `www.myserver.com:8000` etc.)
 
 ### Overview
 
 - Node application code is source controlled under Git.
 - The remote server is running [Gitolite](https://github.com/sitaramc/gitolite) to enable collaborative development and deployment with multi-user access control to a remote Git repo.
 - When new code is pushed to Gitolite a `post-receive` hook is used to execute a shell script which moves the Node application files to their proper location on the server.
-- [Upstart](http://upstart.ubuntu.com) and [Monit](http://mmonit.com/monit) are used to manage the Node application on the server, i.e. restarting on deployment or server reboot and displaying and reporting status.
+- [Upstart](http://upstart.ubuntu.com) and [Monit](http://mmonit.com/monit) are used to manage the Node application on the server for restarting on deployment or server reboot and displaying and reporting status.
 - Gitolite runs under a `git` user, and Node apps will run under a `node` user.
 
 ### Hardware used
@@ -142,25 +142,25 @@ You don't have to keep your node apps in `/var/local/node-apps/`, anywhere will 
 
 ### 5. Upstart
 
-[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as optionally respawning them if their associated process dies. Additionally it exposes a handy command line API for manipulating the services with commands like `sudo start servicename`, `sudo stop servicename` and `sudo status servicename` etc.
+[Upstart](http://upstart.ubuntu.com) is an event driven daemon which handles the automatic starting of services at boot, as well as optionally respawning them if their associated process dies. Additionally it exposes a handy command line API for manipulating the services with commands like `sudo start servicename`, `sudo stop servicename`, `sudo restart servicename` and `sudo status servicename` etc.
 
-A service can be added to Upstart by placing a valid Upstart job configuration file in the `/etc/init` directory. Configuration files having the naming format `servicename.conf`.
+A service can be added to Upstart by placing a valid Upstart job configuration file in the `/etc/init` directory. Configuration files having the naming format `servicename.conf`. It's important to note that the Upstart config files execute as root so `sudo` and `su` etc. is not needed.
 
-In the context of a Node application we can use it to effectively daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session. Upstart's `start on` and `stop on` directives allow us to have the app automatically stopped and started on shutdown and reboot. What's more Upstart's start/stop API provides a useful control point for Monit to hook onto (more on that later).
+In the context of a Node app we can use Upstart to daemonize the app into a system service. In other words we can start the app with a command like `sudo start proxy-node-app` and have it run in the background without taking over our shell or quiting when we exit our SSH session. Upstart's `start on`, `stop on` and `respawn` directives allow us to have the app automatically restarted on reboot and when it quits unexpectedly. What's more Upstart's start/stop API provides a useful control point for Monit to hook onto (more on that later).
 
 Upstart is already on your box if you're running Ubuntu 10.04 like me, but if you don't have it I think it's installable via `apt-get`.
 
-An example Upstart job configuration is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/proxy-node-app.conf), again it's well commented so I won't go into any more detail here.
-
-Upstart job configurations allow you to control how Upstart attempts to restart crashed processes via the `respawn` and `respwan limit` directives. I'm opting *not* to use this feature and instead control respawning via Monit as we'll see in the next section. The reason for this is that Monit allows you to monitor a Node app by actually requesting a response from it over HTTP which is a more reliable indicator of health for a web app than simply an active system process (the web app could be frozen and not responding to requests but have perfectly alive system process for example).
+An example Upstart job configuration is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/proxy-node-app.conf), again it's well commented so I won't go into any more detail.
 
 ### 6. Monit
 
-[Monit](http://mmonit.com/monit) is a utility for managing and monitoring all sorts of UNIX system resources (processes, web services, files, directories  etc). As just mentioned we'll be using it to monitor the health of our Node apps, and restart them if they fall over.
+[Monit](http://mmonit.com/monit) is a utility for managing and monitoring all sorts of UNIX system resources (processes, web services, files, directories  etc). We'll be using it to monitor the health of our proxy Node app, and indeed any other apps we decide to host on this box.
 
-Monit also always you to receive alert emails when something happends, and exposes a web based front end that lets you check on the system's status and manually stop and start monitored services.
+As mentioned above Upstart will automatically respawn services that bomb unexpectedly. However the system process that Upstart monitors could be alive and well but the underlying Node web app could be frozen and not responding to requests. Therefore a more reliable way of checking on our app's health is to actually make a HTTP request and this is where Monit comes in handy - we can set up Monit in such a way that unless it gets a `HTTP 200 OK` response code back from a request to our app it will alert us and attempt to restart the app. This is why we added the special `/ping` route to our app - it's a light weight response that Monit can hit that just returns the text `OK` and a `HTTP 200`.
 
-So just to re-iterate, Upstart starts and stops the app on system reboot and provides the start/stop command line API, and Monit keeps tabs on its status while it is running and restarts it if it looks unhealthy.
+Monit always you to receive alert emails when something happends and exposes a web-based front end that lets you check on the system's status and manually stop and start monitored services if required.
+
+So just to re-iterate: Upstart restarts the app on system reboot and crashes and provides the start/stop command line API while Monit keeps tabs on its status while it is running and restarts it if it looks unhealthy.
 
 I installed Monit via `apt-get` on Ubuntu 10.04 Lucid. Everything went more or less smoothly, and most of the information you need is in the docs. One caveat is that although the docs say that after installation all you need to run is `sudo monit` to start everything I found that I also needed to run `sudo monit start all` to get things fully under way. Maybe rebooting would have worked as well.
 
@@ -170,6 +170,8 @@ Monit is configured via the `/etc/monit/monitrc` file, and [here's](https://gith
 - Exposes Monit's web-based front end on a specific port and controls access via a username and password.
 - Sends me an email via Gmail's SMTP servers when there's an alert.
 - Additionally monitors Apache and MySQL.
+
+Once Monit is properly set up we can stop using Upstart's API to start and stop the app (i.e. `sudo start proxy-node-app`) and start using Monit's instead (i.e. `sudo monit start proxy-node-app`). This has the advantage of 
 
 ### Future thoughts
 

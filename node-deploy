@@ -1,20 +1,23 @@
 #!/bin/sh
 
 # Generic simple deployment script for checking out Node app project files
-# from a bare Git rep. The Node app to work with is defined by the APP_NAME
-# environment variable.
+# from a bare Git rep. The Node app to work with is defined by the APP_NAME   
+# environment variable set in the post-receive hook. This script runs as root.
 #
 # The Git repo is expected to be found at:
 # /home/git/repositories/app-name.git
 #
 # The Node app's project folder is expected at:
 # /var/local/node-apps/app-name
+#
+# This script additionally expects there to be a working Upstart job
+# configuration with a name matching APP_NAME.
 
 echo "Executing post-receive hook for $APP_NAME ..."
 
 # Export environment variables for deployment operation.
 # These will be picked up in the sub process invoked by
-# git checkout later on.
+# the git checkout command.
 
 export GIT_DIR=/home/git/repositories/"$APP_NAME".git
 export GIT_WORK_TREE=/var/local/node-apps/"$APP_NAME"
@@ -26,21 +29,14 @@ echo "Using Node app folder $GIT_WORK_TREE"
 # of APP_NAME we've created valid filesystem locations.
 
 if [ ! -d "$GIT_DIR" ]; then
-    echo "Error, Git repo not found"
-    exit 1
+	echo "Error, Git repo not found"
+	exit 1
 fi
 
 if [ ! -d "$GIT_WORK_TREE" ]; then
-    echo "Error, Node app folder not found"
-    exit 1
+	echo "Error, Node app folder not found"
+	exit 1
 fi
-
-# Stop the app via Monit. Give Monit time to do its thing
-# before directly manipulating any files.
-
-echo "Stopping $APP_NAME with Monit ..."
-monit stop "$APP_NAME"
-sleep 4
 
 # Sync the app location with the latest files in the
 # repo via git checkout. Also change ownership of all the
@@ -51,11 +47,10 @@ unset GIT_INDEX_FILE
 git checkout -f
 chown -R node:node "$GIT_WORK_TREE"
 
-# Restart the app via Monit.
+# Restart the app via Upstart.
 
-echo "Restarting $APP_NAME with Monit ..."
+echo "Restarting via Upstart ..."
 sleep 1
-monit restart "$APP_NAME"
-
+restart "$APP_NAME"
 echo "Deployment complete!"
 exit 0

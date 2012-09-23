@@ -10,15 +10,20 @@ var options = {
 
 function status(req,res,next) {
 
-    if ( req.url === "/wintermute-proxy" ) {
+    console.log(req);
+
+    if ( req.url === "/ping" ) {
         res.end("ok");
     } else {
         next();
     }
 }
 
-console.log("**** Starting up in %s on port %d at %s ****",env,port,new Date().toString());
+console.log("\n*** proxy-node-app ****");
+console.log("Starting up in %s on port %d at %s",env,port,new Date().toString());
+console.log("Process %d, user %s, group %s",process.pid,process.getuid(),process.getgid());
 console.log("Using the following proxy rules:");
+
 for ( var i in options.router ) { console.log("  %s => %s",i,options.router[i]); }
 
 var server = httpProxy.createServer(options,status);
@@ -27,7 +32,7 @@ server.listen(port,function(){
 
     if ( env === "production" ) {
 
-        console.log("Downgrading to run as non-root user and group 'node:node'");
+        console.log("Downgrading permissions.");
         process.setgid("node");
         process.setuid("node");
     }
