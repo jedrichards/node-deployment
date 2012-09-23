@@ -3,7 +3,7 @@
 
 This repo represents an attempt to detail an approach for automated deployment and hosting of Node applications on a remote server. I'll try to add step-by-step instructions to this readme file and where relevant commit some example scripts and config files too.
 
-In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs.
+In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs (i.e. www.myapp.com as opposed to www.myserver.com:8000 etc.)
 
 ### Overview
 
