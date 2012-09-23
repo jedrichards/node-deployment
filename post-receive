@@ -4,4 +4,4 @@
 # is successfully pushed to this repo. In this case we're invoking the node-deploy
 # script as root and passing through the name of the application.
 
-APP_NAME="wintermute-proxy" sudo sh /usr/local/sbin/node-deploy
+APP_NAME="proxy-node-app" sudo sh /usr/local/sbin/node-deploy
