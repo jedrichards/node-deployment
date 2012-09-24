@@ -37,7 +37,7 @@ I wasn't too sure about where to put the deployment script, live Node apps and r
 - Live Node app's log file: `/var/node/proxy-node-app/log`
 - Live Node app's pidfile: `/var/node/proxy-node-app/pid`
 
-Other important locations include these, although you have little control over these:
+Other salient locations include:
 
 - Gitolite repo: `/home/git/repositories/proxy-node-app.git`
 - The Git post-receive hook: `/home/git/repositories/proxy-node-app.git/hooks/post-receive`
@@ -73,7 +73,7 @@ What's more OSX will sometimes cache a public key, especially when you've opted 
 
 I've added the Node reverse proxy application to this repo so you can look around the files. It uses nodejitsu's [node-http-proxy](https://github.com/nodejitsu/node-http-proxy) under the hood.
 
-Writing a Node application and using `npm` etc. is beyond the scope of this document so I'm not going to go into too any detail, but I'll mention the salient points.
+Writing a Node application and using `npm` etc. is beyond the scope of this document so I'm not going to go into too any detail, but I'll mention the main points.
 
 The app reads in a JSON file specifying a set of proxy rules. Traffic hitting the proxy app on port 80 is internally routed to services running on other ports based on the incoming domain name in the request headers. For example, Apache could be set to listen on port 8000, and another Node app could be listening on port 8001. Any virtual hosts configured in Apache will continue to work as expected, and what's more since this is Node web sockets and arbitrary TCP/IP traffic will be proxied flawlessly. As I understand it at the time of writing (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
 
@@ -179,7 +179,7 @@ If you've tweaked the config file and want to see the changes:
 
 	sudo monit reload
 
-Once Monit is properly up and running it exposes a similar command line API to Upstart. The benefit of using Monit's over Upstart's is that you'll get more accurate and verbose status updates and alerts. What's more if you stop the app via Upstart (`sudo stop proxy-node-app`) Monit will just go ahead and restart it soon after, but stopping via Monit will stop monitoring too. The Monit commnds look like this (and indeed we used one back in /var/node/node-deploy):
+Once Monit is properly up and running it exposes a similar command line API to Upstart. The benefit of using Monit's over Upstart's is that you'll get more accurate and verbose status updates and alerts. What's more if you stop the app via Upstart (`sudo stop proxy-node-app`) Monit will just go ahead and restart it soon after, but stopping via Monit will stop monitoring too. The Monit commnds look like this (and indeed we used one back in `/var/node/node-deploy`):
 
 	sudo monit restart proxy-node-app
 	sudo monit start proxy-node-app
