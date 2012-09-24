@@ -32,17 +32,17 @@ In order to kill two birds with one stone the example Node app we'll be deployin
 
 I wasn't too sure about where to put the deployment script, live Node apps and related files. They could go in obscure traditional UNIX locations like `/usr/local/sbin` and `/var/opt/log` but in the end I decided to group all Node stuff into `/var/node`, aping how Apache sites often all go into `/var/www`) and plumped for the following locations:
 
-Generic Node app deployment script: `/var/node/node-deploy`
-Live Node app: `/var/node/proxy-node-app/app`
-Live Node app's log file: `/var/node/proxy-node-app/log`
-Live Node app's pidfile: `/var/node/proxy-node-app/pid`
+- Generic Node app deployment script: `/var/node/node-deploy`
+- Live Node app: `/var/node/proxy-node-app/app`
+- Live Node app's log file: `/var/node/proxy-node-app/log`
+- Live Node app's pidfile: `/var/node/proxy-node-app/pid`
 
 Other important locations include these, although you have little control over these:
 
-Gitolite repo: `/home/git/repositories/proxy-node-app.git`
-The Git post-receive hook: `/home/git/repositories/proxy-node-app.git/hooks/post-receive`
-The Upstart job config: `/etc/init/proxy-node-app.conf`
-Monit's config: `/etc/monit/monitrc`
+- Gitolite repo: `/home/git/repositories/proxy-node-app.git`
+- The Git post-receive hook: `/home/git/repositories/proxy-node-app.git/hooks/post-receive`
+- The Upstart job config: `/etc/init/proxy-node-app.conf`
+- Monit's config: `/etc/monit/monitrc`
 
 ### 1. Setup Gitolite
 
@@ -121,7 +121,7 @@ We're not quite done with `/etc/sudoers` though, we need to stop `sudo` strippin
 
 Again, this shouldn't be too much of a security concern because we'll be handling the contents of `APP_NAME` carefully in `node-deploy`.
 
-You can see my version of the file [here](https://github.com/jedrichards/node-deployment/blob/master/post-receive).
+You can see my version of the file [here](https://github.com/jedrichards/node-deployment/blob/master/sudoers).
 
 Save and exit `/etc/sudoers`. We now should be in a postion where we can push to our Gitolite repo and have the `post-receive` execute, and having granted the `git` user the right to invoke the deployment script as `root` without asking for a password we shoud have the power to do any kind of filesystem manipulation we like. Now we need to write that script.
 
@@ -172,18 +172,18 @@ Once you've got Monit configured you can check the config file's syntax for erro
 
 And the start Monit like this:
 
-	sudo monit
-	sudo monit start all
+	sudo monit                # Starts the Monit daemon
+	sudo monit start all      # Tells the Monit daemon to actually start monitoring things
 
 If you've tweaked the config file and want to see the changes:
 
 	sudo monit reload
 
-Once Monit is properly up and running it exposes a similar command line API to Upstart. The benefit of using Monit's over Upstart's is that you'll get more accurate and verbose status updates and alerts. What's more if you stop the app via Upstart (`sudo stop proxy-node-app`) Monit will just go ahead and restart it soon after, but stopping via Monit will stop monitoring too.
+Once Monit is properly up and running it exposes a similar command line API to Upstart. The benefit of using Monit's over Upstart's is that you'll get more accurate and verbose status updates and alerts. What's more if you stop the app via Upstart (`sudo stop proxy-node-app`) Monit will just go ahead and restart it soon after, but stopping via Monit will stop monitoring too. The Monit commnds look like this (and indeed we used one back in /var/node/node-deploy):
 
 	sudo monit restart proxy-node-app
+	sudo monit start proxy-node-app
 	sudo monit stop proxy-node-app
-	etc.
 
 ### Future thoughts, improvements?
 
