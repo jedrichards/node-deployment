@@ -103,7 +103,7 @@ Navigate to the hooks folder for the relevant repo and start to edit the `post-r
 
 Make the contents look like (or similar to) the [example post-receive hook](https://github.com/jedrichards/node-deployment/blob/master/post-receive) in this repo.
 
-Here we're attempting to invoke the `/usr/local/sbin/node-deploy` generic deployment script via the `sh` command via `sudo` while passing down a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/var/node/node-deploy` with the `sh` command without a password.
+Here we're attempting to invoke the `/var/node/node-deploy` generic deployment script via a `sudo`ed `sh` command while passing down a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/var/node/node-deploy` with the `sh` command without a password.
 
 Start to edit the `/etc/sudoers` file:
 
