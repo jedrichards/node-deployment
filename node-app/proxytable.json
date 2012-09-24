@@ -1,5 +1,6 @@
 {
-    "www.mydomain.com" : "127.0.0.1:8000",
-    "www.myotherdomain.com" : "127.0.0.1:8000",
-    "nodeapp.mydomain.com" : "127.0.0.1:8001"
+    "www.apachevhost1.com" : "127.0.0.1:8000",
+    "www.apachevhost2.com" : "127.0.0.1:8000",
+    "nodeapp.domain.com" : "127.0.0.1:8001"
+    "www.domain.com/nodeapp" "127.0.0.1:8002"
 }

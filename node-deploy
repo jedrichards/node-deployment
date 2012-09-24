@@ -1,41 +1,37 @@
 #!/bin/sh
 
 # Generic simple deployment script for checking out Node app project files
-# from a bare Git rep. The Node app to work with is defined by the APP_NAME   
+# from a bare Git rep. The Node app to work with is defined by the APP_NAME
 # environment variable set in the post-receive hook. This script runs as root.
-#
-# The Git repo is expected to be found at:
-# /home/git/repositories/app-name.git
-#
-# The Node app's project folder is expected at:
-# /var/local/node-apps/app-name
-#
-# This script additionally expects there to be a working Upstart job
-# configuration with a name matching APP_NAME.
 
-echo "Executing post-receive hook for $APP_NAME ..."
+echo "Deploying $APP_NAME ..."
 
 # Export environment variables for deployment operation.
 # These will be picked up in the sub process invoked by
-# the git checkout command.
+# git checkout later on.
 
 export GIT_DIR=/home/git/repositories/"$APP_NAME".git
-export GIT_WORK_TREE=/var/local/node-apps/"$APP_NAME"
+
+APP_DIR=/var/node/"$APP_NAME"
+export GIT_WORK_TREE="$APP_DIR"/app
 
 echo "Using Git repo $GIT_DIR"
 echo "Using Node app folder $GIT_WORK_TREE"
 
 # Check that by concatenating strings with the value
-# of APP_NAME we've created valid filesystem locations.
+# of APP_NAME we've created a valid repo location.
 
 if [ ! -d "$GIT_DIR" ]; then
-	echo "Error, Git repo not found"
-	exit 1
+        echo "Error, Git repo not found"
+        exit 1
 fi
 
+# Node apps will live in /var/node/app-name/app so create
+# if it doesn't exist.
+
 if [ ! -d "$GIT_WORK_TREE" ]; then
-	echo "Error, Node app folder not found"
-	exit 1
+        echo "Warning, Node app folder not found ... creating"
+        mkdir -p "$GIT_WORK_TREE"
 fi
 
 # Sync the app location with the latest files in the
@@ -45,12 +41,10 @@ fi
 echo "Moving app files to $GIT_WORK_TREE" ...
 unset GIT_INDEX_FILE
 git checkout -f
-chown -R node:node "$GIT_WORK_TREE"
+chown -R node:node "$APP_DIR"
 
-# Restart the app via Upstart.
-
-echo "Restarting via Upstart ..."
+echo "Restarting via Monit ..."
 sleep 1
-restart "$APP_NAME"
+monit restart "$APP_NAME"
 echo "Deployment complete!"
 exit 0

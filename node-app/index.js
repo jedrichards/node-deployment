@@ -1,41 +1,61 @@
-var fs = require("fs");
-var httpProxy = require("http-proxy");
+(function () {
 
-var env = process.env.NODE_ENV || "development";
-var port = process.env.PORT || 1337;
+    "use strict";
 
-var options = {
-    router : JSON.parse(fs.readFileSync(__dirname+"/proxytable.json"))
-};
+    var fs = require("fs");
+    var httpProxy = require("http-proxy");
+    var util = require("util");
 
-function status(req,res,next) {
+    var env = process.env.NODE_ENV || "development";
+    var port = process.env.PORT || 1337;
 
-    console.log(req);
+    var options = {
+        router : JSON.parse(fs.readFileSync(__dirname+"/proxytable.json"))
+    };
 
-    if ( req.url === "/ping" ) {
-        res.end("ok");
-    } else {
-        next();
+    log("***** Starting up in %s on port %d with pid %d",env,port,process.pid);
+    log("Using the following proxy rules:\n",options.router);
+
+    var server = httpProxy.createServer(options,status);
+
+    server.listen(port,function(){
+
+        try {
+            process.setgid("node");
+            process.setuid("node");
+            log("Downgraded to node user.");
+        } catch (error) {
+            log("Unable to downgrade permissions.");
+        }
+
+        log("Listening ...");
+    });
+
+    process.on("SIGTERM",function () {
+
+        log("Stopped.");
+    });
+
+    /**
+     * Status middleware. Exposes a light-weight route for checking that the proxy
+     * is still responding to requests. Used by Monit.
+     */
+    function status(req,res,next) {
+
+        if ( req.url === "/ping" ) {
+            res.end("ok");
+        } else {
+            next();
+        }
     }
-}
 
-console.log("\n*** proxy-node-app ****");
-console.log("Starting up in %s on port %d at %s",env,port,new Date().toString());
-console.log("Process %d, user %s, group %s",process.pid,process.getuid(),process.getgid());
-console.log("Using the following proxy rules:");
+    /**
+     * Outputs information to stdout while prefixing an ISO 8601 date.
+     */
+    function log(item) {
 
-for ( var i in options.router ) { console.log("  %s => %s",i,options.router[i]); }
+        var output = new Date().toISOString()+" "+util.format.apply(null,arguments);
 
-var server = httpProxy.createServer(options,status);
-
-server.listen(port,function(){
-
-    if ( env === "production" ) {
-
-        console.log("Downgrading permissions.");
-        process.setgid("node");
-        process.setuid("node");
+        util.puts(output);
     }
-
-    console.log("Listening ...");
-});
+})();

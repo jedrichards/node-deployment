@@ -2,7 +2,7 @@
 
 set daemon 60
 
-# Expose the Monit web based front-end on the port 0000. Allow any incoming
+# Expose the monit web based front-end on the port 0000. Allow any incoming
 # connections from any IP as long as they supply the correct credentials.
 
 set httpd port 0000
@@ -37,13 +37,13 @@ Find out more at http://0.0.0.0:0000
 Love, $HOST X
 }
 
-# Check the proxy-node-app Node app. The PID, start and stop functionality
-# is supplied by Upstart. If the proxy fails to respond with a 200 OK response
-# code after a request to its special "/ping" route then Monit will alert and
-# attempt to restart.
+# Check proxy-node-app. The pidfile and start/stop functionality is supplied
+# by Upstart. If the proxy fails to respond with a 200 OK HTTP response code
+# after a request to its special "/ping" route then Monit will
+# alert and attempt to restart.
 
 check process proxy-node-app
-    with pidfile /var/opt/node/run/proxy-node-app.pid
+    with pidfile /var/node/proxy-node-app/pid
     start program = "/sbin/start proxy-node-app"
     stop program = "/sbin/stop proxy-node-app"
     if failed
@@ -52,48 +52,6 @@ check process proxy-node-app
         protocol HTTP
         request /ping
         with timeout 5 seconds
-        then restart
-    if 3 restarts
-        within 3 cycles
-        then timeout
-
-# Check the Apache2 process. Additionally check that the specified vhosts
-# are responding to requests and alert if they don't. Assuming you have Apache
-# running on port 8000.
-
-check process apache2
-    with pidfile /var/run/apache2.pid
-    start program = "/etc/init.d/apache2 start"
-    stop program = "/etc/init.d/apache2 stop"
-    if failed
-        host www.somevhost.com
-        port 8000
-        protocol HTTP
-        request /
-        with timeout 5 seconds
-        then alert
-    if failed
-        host www.someothervhost.com
-        port 8000
-        protocol HTTP
-        request /
-        with timeout 5 seconds
-        then alert
-    if 3 restarts
-        within 3 cycles
-        then timeout    
-
-# Check the MySQL process. MySQL doesn't make a PID file by default, you have to
-# add the line "pid-file = /var/run/mysqld/mysqld.pid" to the /etc/mysql/my.cnf
-# file in the [mysqld] section.
-
-check process mysql
-    with pidfile /var/run/mysqld/mysqld.pid
-    start program = "/sbin/start mysql"
-    stop program = "/sbin/stop mysql"
-    if failed
-        host 127.0.0.1
-        port 3306
         then restart
     if 3 restarts
         within 3 cycles

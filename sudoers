@@ -1,0 +1,30 @@
+# /etc/sudoers
+#
+# This file MUST be edited with the 'visudo' command as root.
+#
+# See the man page for details on how to write a sudoers file.
+#
+
+Defaults env_keep += "APP_NAME"
+Defaults env_reset
+
+# Host alias specification
+
+# User alias specification
+
+# Cmnd alias specification
+
+# User privilege specification
+root    ALL=(ALL) ALL
+
+# Allow members of group sudo to execute any command after they have
+# provided their password
+# (Note that later entries override this, so you might need to move
+# it further down)
+%sudo ALL=(ALL) ALL
+
+# Members of the admin group may gain root privileges
+%admin ALL=(ALL) ALL
+
+# Give git user password-less sudo rights to invoke deployment scripts
+git ALL = (root) NOPASSWD: /bin/sh /var/node/node-deploy
