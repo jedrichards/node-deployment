@@ -20,6 +20,10 @@
 
     server.listen(port,function(){
 
+        // Attempt to downgrade to the node system user. This will error in an
+        // environment that doesn't have that user (i.e. development) hence the
+        // try/catch blocks.
+
         try {
             process.setgid("node");
             process.setuid("node");
@@ -30,6 +34,9 @@
 
         log("Listening ...");
     });
+
+    // Upstart should politely stop the app via a SIGTERM before the SIGKILL, so
+    // we listen for it here and log it just to make the logs more descriptive.
 
     process.on("SIGTERM",function () {
 

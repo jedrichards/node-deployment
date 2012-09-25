@@ -3,15 +3,15 @@
 
 This repo represents an attempt to detail an approach for automated deployment and hosting of Node applications on a remote server. I'll try to add step-by-step instructions to this readme file and where relevant commit some example scripts and config files too.
 
-In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs (i.e. `www.myapp.com` as opposed to `www.myserver.com:8000` etc.)
+In order to kill two birds with one stone the example Node app we'll be deploying will be a reverse proxy listening on port 80, which will be useful in future when we want to run further services on the server on ports other than 80 but still reach them on clean URIs (e.g. `www.myapp.com` as opposed to `www.myserver.com:8000` etc.)
 
 ### Deployment overview
 
 - Node application code is source controlled under Git.
 - The remote server is running [Gitolite](https://github.com/sitaramc/gitolite) to enable collaborative development and deployment with multi-user access control to a remote Git repo.
-- When new code is pushed to Gitolite a `post-receive` hook is used to execute a shell script which moves the Node application files to their proper location on the server.
-- [Upstart](http://upstart.ubuntu.com) and [Monit](http://mmonit.com/monit) are used to manage the Node application on the server for restarting on deployment or server reboot and displaying and reporting status.
-- Gitolite runs under a `git` user, and Node apps will run under a `node` user.
+- When new code is pushed to Gitolite a `post-receive` hook is used to execute a shell script which moves the Node application files to their proper location on the server and restarts the app.
+- [Upstart](http://upstart.ubuntu.com) and [Monit](http://mmonit.com/monit) are used to manage the Node application on the server, both for restarting on deployment and reboot and for displaying and reporting on status.
+- Gitolite and Node apps will run under the `git` and `node` system users. The deployment script will be invoked as `root`.
 
 ### Hardware used
 
@@ -54,7 +54,7 @@ During installation Gitolite mandates the creation of a `git` (or `gitolite`) us
 	
 	ssh -vT git@gitolite-host
 
-It can also be useful to nail down which SSH credentials your system may be trying to use for a given user/host combination, in which case you could add an entry to your `~/.ssh/config` file something like this:
+It can also be useful to nail down which SSH credentials your system may be trying to use for a given user/key/host combination, in which case you could add an entry to your `~/.ssh/config` file something like this:
 
 	Host gitolite-host
 		HostName 0.0.0.0
@@ -62,48 +62,50 @@ It can also be useful to nail down which SSH credentials your system may be tryi
 		User git
 		IdentitiesOnly yes
 
-This example would define a `gitolite-host` server alias pointing to the host at IP `0.0.0.0` which would always connect as the remote user `git` using the `~/.ssh/id_rsa` key. The `IdentitiesOnly yes` enforces the use of the specified key, since in some cases the system may give up connecting before the correct key has been used.
-
-What's more OSX will sometimes cache a public key, especially when you've opted to save a key's password to the keychain/`ssh-agent`. So if you're really having trouble SSHing into Gitolite with right user/key combo you can purge that cache like so:
+This example would define a `gitolite-host` server alias pointing to your deployment server at IP `0.0.0.0` which would always connect as the remote user `git` using the `~/.ssh/id_rsa` key. The `IdentitiesOnly yes` enforces the use of the specified key. OSX will sometimes cache a public key, especially when you've opted to save a key's password to the system keychain and/or `ssh-agent`. So if you're really having trouble SSHing into Gitolite with right user/key/host combo you can purge that cache like so:
 
 	sudo ssh-add -L # Lists all public keys currently being cached
 	sudo ssh-add -D # Deletes all cached public keys
 
 ### 2. The Node Application
 
-I've added the Node reverse proxy application to this repo so you can look around the files. It uses nodejitsu's [node-http-proxy](https://github.com/nodejitsu/node-http-proxy) under the hood.
+I've added the Node reverse proxy application code to this repo [here](https://github.com/jedrichards/node-deployment/tree/master/node-app) so you can look around the files. It uses nodejitsu's own [node-http-proxy](https://github.com/nodejitsu/node-http-proxy) under the hood, which apparently is a robust proxy that's sees a good deal of testing and production usage.
 
-Writing a Node application and using `npm` etc. is beyond the scope of this document so I'm not going to go into too any detail, but I'll mention the main points.
+The app reads a JSON file specifying a set of proxy rules and starts listening on port 80. For a example, an incoming request to `www.my-node-app.com` could be internally rerouted to a Node app running at `127.0.0.1:8022`, a request to `www.my-domain.com` could be proxied to an Apache vhost at `127.0.0.1:8000`, and a request to `www.my-domain.com/api` could be routed to a Node app sitting at `127.0.0.1:8023`, and so on. Since this is Node, web sockets and arbitrary TCP/IP traffic will be proxied (hopefully) flawlessly. I think node-http-proxy also supports proxying of HTTPS over SSL/TLS too although I don't have that set up in the example app. As I understand it at the time of writing (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
 
-The app reads in a JSON file specifying a set of proxy rules. Traffic hitting the proxy app on port 80 is internally routed to services running on other ports based on the incoming domain name in the request headers. For example, Apache could be set to listen on port 8000, and another Node app could be listening on port 8001. Any virtual hosts configured in Apache will continue to work as expected, and what's more since this is Node web sockets and arbitrary TCP/IP traffic will be proxied flawlessly. As I understand it at the time of writing (Sept 2012) nginx and Apache via `mod_proxy` still do not happily support web socket proxying out of the box.
+The app is configured for server vs. dev environments via the environment variables `NODE_ENV` and `PORT`. Later on you'll see the environment variables being exported to the Node app's process in the Upstart job configuration.
 
-The app is configured for server vs. dev environments via the environment variables `NODE_ENV` and `PORT`. Later on in this document you'll see the environment variables being set in the Upstart job configuration.
+The app exposes a special route `/ping` via custom middleware which we'll later see Monit use to periodically check the health of the proxy.
 
-The app exposes a special route `/ping` via custom middleware which we'll later see Monit use to check the health of the proxy.
+On the server we don't really want the app to run as root via `sudo` however we're not allowed to bind to port 80 unless this is the case. One rememdy would be to reroute all port 80 traffic to a higher port by rerouting internal IP traffic. Apparently a command such as this routes packets coming in on port 80 to port 8000:
 
-On the server we don't really want the app to run as root via `sudo` however we're not allowed to bind to port 80 unless this is the case. One rememdy would be to reroute all port 80 traffic to a higher port via reconfiguring the IP tables and set our app to listen there. But that sounds like extra easily forgotten configuration steps though, so in this case we'll be invoking our app as root initially but then immediately having it downgrade itself to the non-privileged user `node` once internal setup has completed.
+	sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 8000`
 
-At this stage it might be handy to create the `node` user on the system:
+But that sounds like easily forgotten extra configuration steps though, so in this case we'll be invoking our app as root initially but then immediately having it downgrade itself to the non-privileged user once internal setup has completed. Apparently this is how Apache handles listening on port 80.
 
-	sudo adduser --system --shell /bin/bash --gecos "User for running Node apps" --group --disabled-password --home /home/node node
+At this stage it might be handy to create the non-privileged `node` system user:
+
+	sudo adduser --system --shell /bin/bash --gecos "Node apps" --group --disabled-password --home /home/node node
 
 ### 3. The post-recieve hook
 
-At this stage I'll assume you have some application code added to a fully working remote Gitolite repo on the server and are able to push and pull to it with ease from your workstation.
+At this stage I'll assume you have some application code added to a fully working remote Gitolite repo on the server and are able to `push` and `pull` to it with ease from your workstation.
 
 The task of the Git `post-receive` hook is to invoke a generic deploy script which moves the Node app files out of the bare Gitolite repo and into whichever location we decide to store our active node apps on the server whenever new code is pushed. First you need to SSH into the server and become Gitolite's `git` user:
 
 	ssh user@host
 	sudo su git
 
-Navigate to the hooks folder for the relevant repo and start to edit the `post-receive` file. It's important that this file is owned by and executable by the `git` user.
+Navigate to the hooks folder for the relevant repo and start to edit the `post-receive` file. It's important that this file is owned by and executable by the `git` user, since that's the user that'll be executing it.
 
 	cd /home/git/repositories/proxy-node-app.git/hooks
+	touch post-receive        # If required, may already exist
+	chmod u+x post-receive    # If required, may already be executable
 	nano post-receive
 
-Make the contents look like (or similar to) the [example post-receive hook](https://github.com/jedrichards/node-deployment/blob/master/post-receive) in this repo.
+Make the contents look like (or similar to) the example `post-receive` hook in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/post-receive).
 
-Here we're attempting to invoke the `/var/node/node-deploy` generic deployment script via a `sudo`ed `sh` command while passing down a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/var/node/node-deploy` with the `sh` command without a password.
+In the hook we're attempting to invoke the `/var/node/node-deploy` generic deployment script via a `sudo`ed `sh` command while passing down a configuration environment variable called `APP_NAME` (we'll go on to make that script in the next section). Since this `post-receive` hook will not be executing in an interactive shell it will bork at the `git` user's attempt to `sudo`, so the next thing we need to do is give the `git` user the right to invoke `/var/node/node-deploy` with the `sh` command without a password.
 
 Start to edit the `/etc/sudoers` file:
 
@@ -113,7 +115,7 @@ And add the following line at the bottom:
 
 	git ALL = (root) NOPASSWD: /bin/sh /var/node/node-deploy
 
-This isn't as big a security concern as it might seem because we're only giving the `git` user password-less `sudo` rights to this one particular script, which itself will only be editable and viewable by `root`.
+(I think) this isn't as big a security concern as one might think since we're only giving the `git` user password-less `sudo` rights to this one particular script, which itself will only be editable and viewable by `root`.
 
 We're not quite done with `/etc/sudoers` though, we need to stop `sudo` stripping out our `APP_NAME` environment variable. Add the following at the top just above the `Defaults env_reset` line:
 
@@ -121,22 +123,20 @@ We're not quite done with `/etc/sudoers` though, we need to stop `sudo` strippin
 
 Again, this shouldn't be too much of a security concern because we'll be handling the contents of `APP_NAME` carefully in `node-deploy`.
 
-You can see my version of the file [here](https://github.com/jedrichards/node-deployment/blob/master/sudoers).
+You can see my version of sudoers here [here](https://github.com/jedrichards/node-deployment/blob/master/sudoers). It just has the default contents and the changes mentioned above.
 
 Save and exit `/etc/sudoers`. We now should be in a postion where we can push to our Gitolite repo and have the `post-receive` execute, and having granted the `git` user the right to invoke the deployment script as `root` without asking for a password we shoud have the power to do any kind of filesystem manipulation we like. Now we need to write that script.
 
 ### 4. The generic deployment script
 
-I'm calling this a "generic" deployment script because I'm aiming for it to be useful for publishing any reasonably non-complex Node app. To this end we use the `APP_NAME` value passed in from the `post-receive` hook to tailor the behaviour of the script.
-
-It's important that this script belongs to `root`, because it's being invoked as `root` by the `git` user and will be doing some unilateral heavy lifting. It doesn't have to be executable since we're invoking it via `sh`. Go and ahead and create it:
+I'm calling this a "generic" deployment script because I'm aiming for it to be useful for publishing any reasonably non-complex Node app. To this end we use the `APP_NAME` value passed in from the `post-receive` hook to tailor the behaviour of the script. It doesn't have to be executable since we're invoking it via the `sh` command. Go and ahead and create it:
 
 	cd /var/node
 	sudo touch node-deploy
 
 An example of this script is in this repo [here](https://github.com/jedrichards/node-deployment/blob/master/node-deploy).
 
-The script above is fairly well commented so I won't go into much detail, but basically this script is simply syncronising the contents of the node app directory (in this case `/var/node/proxy-node-app/app`) with the latest revision of files in the bare Gitolite repo. Once that's been done it's changing the ownership of the files to the `node` user and restarting the app via Monit (and Upstart).
+The script above is fairly well commented so I won't go into much detail but basically it simply syncronising the contents of the node app directory (in this case `/var/node/proxy-node-app/app`) with the latest revision of files in the bare Gitolite repo via `git checkout -f`. Once that's been done it's changing the ownership of the files to the `node` user and restarting the app via Monit.
 
 You don't have to keep your node apps in `/var/node`, anywhere will likely do, but after some research it seemed like a reasonably sensible location.
 
