@@ -215,13 +215,13 @@ Although I tried to keep this as simple as possible I'm aware that it involves a
 
 ### References
 
-http://stackoverflow.com/questions/11211950/post-receive-hook-permission-denied-unable-to-create-file-error
-https://github.com/joyent/node/wiki/Resources
-http://clock.co.uk/tech-blogs/deploying-nodejs-apps
-http://caolanmcmahon.com/posts/deploying_node_js_with_upstart
-http://www.carbonsilk.com/node/deploying-nodejs-apps
-http://howtonode.org/deploying-node-upstart-monit
-http://dailyjs.com/2010/03/15/hosting-nodejs-apps
+- http://stackoverflow.com/questions/11211950/post-receive-hook-permission-denied-unable-to-create-file-error
+- https://github.com/joyent/node/wiki/Resources
+- http://clock.co.uk/tech-blogs/deploying-nodejs-apps
+- http://caolanmcmahon.com/posts/deploying_node_js_with_upstart
+- http://www.carbonsilk.com/node/deploying-nodejs-apps
+- http://howtonode.org/deploying-node-upstart-monit
+- http://dailyjs.com/2010/03/15/hosting-nodejs-apps
 
 
 
