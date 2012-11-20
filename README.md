@@ -222,6 +222,3 @@ Although I tried to keep this as simple as possible I'm aware that it involves a
 - http://www.carbonsilk.com/node/deploying-nodejs-apps
 - http://howtonode.org/deploying-node-upstart-monit
 - http://dailyjs.com/2010/03/15/hosting-nodejs-apps
-
-
-
